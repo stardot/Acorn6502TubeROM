@@ -1,0 +1,991 @@
+        TTL     > Tos02
+
+; OsByte
+; ======
+
+; If A < 128 then SBYTNO->R2, X->R2, A->R2; R2->X
+
+BYTE    CMPIM   &80
+        BCS     SBYTE
+
+        PHA
+        LDAIM   SBYTNO
+        W2BYTE  A
+        W2BYTE  X
+        PLA
+        W2BYTE  A
+
+        R2BYTE  X
+        RTS
+
+
+; If A >= 128 check for TOS OsByte calls else go into normal OsByte routine
+
+SBYTE   CMPIM   &82
+        BEQ     MACADD
+        CMPIM   &83
+        BEQ     LOMEM
+        CMPIM   &84
+        BEQ     HIMEM
+
+; BYTENO->R2, X->R2, Y->R2, A->R2
+
+        PHA
+        LDAIM   BYTENO
+        W2BYTE  A
+        W2BYTE  X
+        W2BYTE  Y
+        PLA
+        W2BYTE  A
+
+; if A=&9D exit now
+; if A=&8E then it's run a rom
+; R2bit7->C, R2->Y, R2->X
+
+        CMPIM   &8E
+        BEQ     CLIRUM
+        CMPIM   &9D
+        BEQ     BYTEX
+
+        PHA
+        R2BYTE  A
+        ASLA
+        PLA
+        R2BYTE  Y
+        R2BYTE  X
+
+BYTEX   RTS
+
+
+HIMEM
+ [ $Turbo
+        BIT     REG0
+        BPL     ORD84
+        LDAIM   &04             ; Volume 4
+        LDXIM   &00
+        LDYIM   &00
+        RTS
+ORD84
+ ]
+        LDX     goaddr
+        LDY     goaddr+1
+        RTS
+
+
+LOMEM
+ [ $Turbo
+        BIT     REG0
+        BPL     ORD83
+        LDAIM   &01             ; Volume 1
+        LDXIM   &00
+        LDYIM   &00
+        RTS
+ORD83
+ ]
+        GENAD   &0800
+        RTS
+
+
+MACADD  GENAD   0
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsWord
+; ======
+
+; If A=0 then use READLN
+
+WORD ROUT
+
+        STX     wrdptr
+        STY     wrdptr+1
+ [ $Turbo
+        LDYIM   0
+        STY     Turbo+wrdptr
+ ]
+        TAY
+        BEQ     READLN
+        PHA
+
+; WORDNO->R2, A->R2
+
+        LDYIM   WORDNO
+        W2BYTE  Y
+        W2BYTE  A
+
+; A >= 128                size := (CB),0
+; (A < 128) AND (A > &14) size := 16
+; A <= &14                size := table%(A-1)
+
+        TAX
+        BPL     #FA20
+
+        LDYIM   0
+        LDAIY   wrdptr
+        TAY
+        JMP     #FA30
+
+20      LDYAX   WORSEN -01
+        CPXIM   &15
+        BCC     #FA30
+        LDYIM   &10
+
+; size->R2
+
+30      W2BYTE  Y
+
+; size [ bytes from control block ->R2 ]
+
+        DEY
+        BMI     #FT50
+
+40      BIT     R2STAT
+        BVC     #BT40
+        LDAIY   wrdptr
+        STA     R2DATA
+        DEY
+        BPL     #BT40
+
+; A >= 128                size := (CB),1
+; (A < 128) AND (A > &14) size := 16
+; A <= &14                size := table%(A-1)
+
+50      TXA
+        BPL     #FT60
+        LDYIM   1
+        LDAIY   wrdptr
+        TAY
+        JMP     #FA70
+
+60      LDYAX   WORRCV -01
+        CPXIM   &15
+        BCC     #FA70
+        LDYIM   &10
+
+; size->R2
+
+70      W2BYTE  Y
+
+; size [ R2 -> bytes to control block ]
+
+        DEY
+        BMI     #FT90
+
+80      BIT     R2STAT
+        BPL     #BT80
+        LDA     R2DATA
+        STAIY   wrdptr
+        DEY
+        BPL     #BT80
+
+90      LDY     wrdptr+1
+        LDX     wrdptr
+        PLA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsWord 0
+
+; RDLNNO->R2, (CB),4->R2, (CB),3->R2, (CB),2->R2, 7->R2, 0->R2
+
+READLN  ROUT
+
+        LDAIM   RDLNNO
+        JSR     WRITOO
+
+        LDYIM   4
+10      BIT     R2STAT
+        BVC     #BT10
+        LDAIY   wrdptr
+        STA     R2DATA
+        DEY
+        CPYIM   1
+        BNE     #BT10
+
+        LDAIM   7
+        JSR     WRITOO
+        LDAIY   wrdptr
+        PHA
+        DEY
+        W2BYTE  Y
+        LDAIY   wrdptr
+        PHA
+        LDXIM   &FF
+
+; R2->answer. If answer >= &80 escape was pressed
+
+        JSR     RDCHW
+        CMPIM   &80
+        BCS     #FT90
+        PLA
+        STA     wrdptr
+        PLA
+        STA     wrdptr+1
+
+; R2->string cr
+
+        LDYIM   0
+20      R2BYTE  A
+        STAIY   wrdptr
+        INY
+        CMPIM   CR
+        BNE     #BA20
+
+        LDAIM   0
+        DEY
+        CLC
+        INX
+        RTS
+
+
+90      PLA
+        PLA
+        LDAIM   0
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsArgs
+; ======
+
+; ARGSNO->R2, CB,3->R2, CB,2->R2, CB,1->R2, CB,0->R2, A->R2
+
+ARGS    PHA
+        LDAIM   ARGSNO
+        JSR     WRITOO
+
+        W2BYTE  Y
+        LDAZX   3
+        JSR     WRITOO
+        LDAZX   2
+        JSR     WRITOO
+        LDAZX   1
+        JSR     WRITOO
+        LDAZX   0
+        JSR     WRITOO
+        PLA
+        JSR     WRITOO
+
+; R2->A, R2->CB,3, R2->CB,2, R2->CB,1, R2->CB,0
+
+        JSR     RDCHW
+        PHA
+        JSR     RDCHW
+        STAZX   3
+        JSR     RDCHW
+        STAZX   2
+        JSR     RDCHW
+        STAZX   1
+        JSR     RDCHW
+        STAZX   0
+        PLA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsFind
+; ======
+
+; FINDNO->R2, A->R2
+
+FIND    PHA
+        LDAIM   FINDNO
+        JSR     WRITOO
+        PLA
+        JSR     WRITOO
+        CMPIM   0
+        BNE     FINDLN
+
+; If A=0 Y->R2, R2->junk
+
+        PHA
+        TYA
+        JSR     WRITOO
+        JSR     RDCHW
+        PLA
+        RTS
+
+; If A <> 0 string cr->R2, R2->A
+
+FINDLN  JSR     STRING
+        JMP     RDCHW
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsBGet
+; ======
+
+; BGETNO->R2, Y->R2; R2bit7->C, R2->A
+
+BGET    LDAIM   BGETNO
+        JSR     WRITOO
+        TYA
+        JSR     WRITOO
+        JMP     RDCHA
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsBPut
+; ======
+
+; BPUTNO->R2, Y->R2, A->R2; R2->junk
+
+BPUT    PHA
+        LDAIM   BPUTNO
+        JSR     WRITOO
+        TYA
+        JSR     WRITOO
+        PLA
+        JSR     WRITOO
+        PHA
+        JSR     RDCHW
+        PLA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; subroutine to write A to R2
+
+WRITOO  BIT     R2STAT
+        BVC     WRITOO
+        STA     R2DATA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsFile
+; ======
+
+; FILENO->R2, (CB),17->R2...(CB),2->R2, string cr->R2, A->R2
+
+FILE ROUT
+
+        STY     cbptr+1
+        STX     cbptr
+        PHA
+ [ $Turbo
+        LDAIM   0
+        STA     Turbo+cbptr
+ ]
+
+        LDAIM   FILENO
+        JSR     WRITOO
+
+        LDYIM   17
+10      LDAIY   cbptr
+        JSR     WRITOO
+        DEY
+        CPYIM   1
+        BNE     #BT10
+
+        DEY
+        LDAIY   cbptr
+        TAX
+        INY
+        LDAIY   cbptr
+        TAY
+        JSR     STRING
+        PLA
+        JSR     WRITOO
+
+; R2->A, R2->(CB),17...R2->(CB),2
+
+        JSR     RDCHW
+        PHA
+
+        LDYIM   17
+20      JSR     RDCHW
+        STAIY   cbptr
+        DEY
+        CPYIM   1
+        BNE     #BT20
+
+        LDY     cbptr+1
+        LDX     cbptr
+        PLA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsGbPb
+; ======
+
+; GBPBNO->R2, (CB),12->R2...(CB),0->R2, A->R2
+
+GBPB ROUT
+
+        STY     cbptr+1
+        STX     cbptr
+        PHA
+ [ $Turbo
+        LDAIM   0
+        STA     Turbo+cbptr
+ ]
+
+        LDAIM   GBPBNO
+        JSR     WRITOO
+
+        LDYIM   12
+10      LDAIY   cbptr
+        JSR     WRITOO
+        DEY
+        BPL     #BT10
+
+        PLA
+        JSR     WRITOO
+
+; R2->(CB),12...R2->(CB),0, R2bit7->C, R2->A
+
+        LDYIM   12
+20      JSR     RDCHW
+        STAIY   cbptr
+        DEY
+        BPL     #BT20
+
+        LDY     cbptr+1
+        LDX     cbptr
+        JMP     RDCHA
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Default owner of many vectors
+
+BadBrk  BRK
+        = &FF, "Bad", 0
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Table of number of bytes to send in OsWord
+
+WORSEN  = 0   ; Read system clock
+        = 5   ; Write system clock
+        = 0   ; Read interval timer
+        = 5   ; Write interval timer
+        = 4   ; Read IO processor core
+        = 5   ; Write IO processor core
+        = 8   ; Produce sound
+        = 14  ; Define sound envelope
+        = 4   ; Read pixel logical colour
+        = 1   ; Read character definition
+        = 1   ; Read palette
+        = 5   ; Write palette
+        = 0   ; Read current + previous graphics cursor positions
+ [ $rel2
+        = 8   ; Read CMOS clock
+ |
+        = 1
+ ]
+        = 32  ; Write CMOS clock
+        = 16  ; Call transmit (NFS)
+        = 13  ; Open/read receive block (NFS)
+        = 0   ; Read remote routine arguments (NFS)
+ [ $rel2
+        = 8   ; Read/set miscellaneous net information (NFS)
+ |
+        = 4
+ ]
+        = 128 ; Call file server (NFS)
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Table of number of bytes to receive in OsWord
+
+WORRCV  = 5   ; Read system clock
+        = 0   ; Write system clock
+        = 5   ; Read interval timer
+        = 0   ; Write interval timer
+        = 5   ; Read IO processor core
+        = 0   ; Write IO processor core
+        = 0   ; Produce sound
+        = 0   ; Define sound envelope
+        = 5   ; Read pixel logical colour
+        = 9   ; Read character definition
+        = 5   ; Read palette
+        = 0   ; Write palette
+        = 8   ; Read current + previous graphics cursor positions
+ [ $rel2
+        = 25  ; Read CMOS clock
+ |
+        = 24
+ ]
+        = 0   ; Write CMOS clock
+        = 1   ; Call transmit (NFS)
+        = 13  ; Open/read receive block (NFS)
+        = 128 ; Read remote routine arguments (NFS)
+ [ $rel2
+        = 8   ; Read/set miscellaneous net information (NFS)
+ |
+        = 4
+ ]
+        = 128 ; Call file server (NFS)
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; IRQ/BRK handling
+
+IRQ     STA     IRQatmp
+        PLA             ; Check for BRK instruction
+        PHA
+        ANDIM   &10
+        BNE     BRK
+
+        JMI     ALLIRQ  ; Go through first indirection ...
+
+
+; ... which ends up here. Check for TUBE interrupts
+
+DEFIRQ  BIT     R4STAT  ; Register 4 interrupt (data xfer control and errors)
+        BMI     TUBIRR
+
+        BIT     R1STAT  ; Register 1 interrupt (events and escape)
+        BMI     TUBIRQ
+
+        JMI     IRQVEC  ; Wasn't the TUBE so get hold of the user if he's there
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; BRK handling. Initialise brkptr to point to error code
+
+BRK     TXA
+        PHA
+        TSX
+        LDAAX   &0103
+        CLD
+        SEC
+        SBCIM   1
+        STA     brkptr
+        LDAAX   &0104
+        SBCIM   0
+        STA     brkptr+1
+ [ $Turbo
+        LDAIM   0
+        STA     Turbo+brkptr
+ ]
+
+        PLA
+        TAX
+        LDA     IRQatmp
+        CLI
+        JMI     BRKVEC
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Register 1 IRQ. If negative updates escape flag
+
+TUBIRQ  LDA     R1DATA
+        BMI     TUBESC
+
+; Event routine. R2->Y, R2->X, R2->A, go to event server
+
+        TYA
+        PHA
+        TXA
+        PHA
+        JSR     READON
+        TAY
+        JSR     READON
+        TAX
+        JSR     READON
+        JSR     GOEVT
+        PLA
+        TAX
+        PLA
+        TAY
+        LDA     IRQatmp
+        RTI
+
+GOEVT   JMI     EVTVEC
+
+
+TUBESC  ASLA            ; Update EscFlag with bit 6 from the TUBE
+        STA     EscFlag
+        LDA     IRQatmp
+        RTI
+
+
+TUBIRR  LDA     R4DATA  ; Register 4 IRQ. If negative signifies error
+        BPL     TUBADD
+
+        CLI
+
+IRRWAT  BIT     R2STAT  ; Flush data in R2 Host to parasite
+        BPL     IRRWAT
+        LDA     R2DATA
+        LDAIM   0
+        STA     BRKBuffer
+        TAY
+
+; R2->error code number
+
+        JSR     RDCHW
+        STA     BRKBuffer+1
+
+; R2->string, 0
+
+OERRW   INY
+        JSR     RDCHW
+        STAAY   BRKBuffer+1
+        BNE     OERRW
+
+        JMP     BRKBuffer ; Execute the BRK we just copied
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ [ $Turbo
+
+; Turbo data transfer initialisation. RC in A
+
+TUBADD ROUT
+
+        STA     NMIIND          ; RC from Host
+        TYA                     ; Save Y
+        PHA
+        LDY     NMIIND
+
+        LDAAY   NMILOTAB        ; New NMI routine
+        STA     NMIIND
+        LDAAY   NMIHITAB
+        STA     NMIIND+1
+
+        R4BYTE                  ; Read R4 (Tube owner handle)
+
+        CPYIM   5               ; Reserved RC
+        BEQ     TYARTI
+
+        R4BYTE                  ; Ignore just one MSB of hi order addr
+        R4BYTE                  ; Set up data ptr in &F6
+        STA     Turbo+dataptr
+        R4BYTE
+        STA     dataptr+1
+        R4BYTE
+        STA     dataptr
+
+        BIT     R3DATA
+        BIT     R3DATA
+
+        R4BYTE                  ; Read R4
+
+        CPYIM   6               ; If not RC 6/7 then return
+        BCC     TYARTI
+        BNE     TRC7            ; C set here for RC 6/7
+
+; .............................................................................
+
+TRC6 ROUT ; 256 byte : Turbo -> Host
+
+        ROR     REG0            ; Turbo on. C set on entry
+        LDYIM   0
+
+10TRC6  BIT     R3STAT
+        BPL     .-3             ; NB. BPL !
+        LDAIY   dataptr
+        STA     R3DATA
+        INY
+        BNE     #10TRC6
+
+        BIT     R3STAT
+        BPL     .-3
+        STA     R3DATA
+
+; .............................................................................
+
+TYARTI  ASL     REG0            ; Restore Turbo state, Y, A
+        PLA
+        TAY
+        LDA     IRQatmp
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+TRC7 ROUT ; 256 byte : Host -> Turbo
+
+        LDYIM   0
+        ROR     REG0            ; Turbo on. C set on entry
+
+10TRC7  BIT     R3STAT
+        BPL     .-3             ; NB. BPL !
+        LDA     R3DATA
+        STAIY   dataptr
+        INY
+        BNE     #10TRC7
+
+        BEQ     TYARTI          ; Forced
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+TRC0 ROUT ; Byte transfer : Turbo -> Host
+
+        PHA
+        TYA     
+        PHA
+        SEC
+        ROR     REG0            ; Turbo on
+
+        LDYIM   0
+        LDAIY   dataptr
+        STA     R3DATA
+
+        INC     dataptr
+        BNE     #10TRC0
+        INC     dataptr+1
+        BNE     #10TRC0
+        INC     Turbo+dataptr
+
+10TRC0  PLA
+        TAY
+        PLA
+        ASL     REG0
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+NMILOTAB
+ = :LSB: TRC0,   :LSB: TRC1,   :LSB: TRC2,   :LSB: TRC3
+ = :LSB: DefNMI, :LSB: DefNMI, :LSB: DefNMI, :LSB: DefNMI
+
+NMIHITAB
+ = :MSB: TRC0,   :MSB: TRC1,   :MSB: TRC2,   :MSB: TRC3
+ = :MSB: DefNMI, :MSB: DefNMI, :MSB: DefNMI, :MSB: DefNMI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ ] ; not quite the end of Turbo data transfer (some more in TOS03)
+
+ [ :LNOT: $Turbo
+TUBADD  STA     NMIIND  ; Register 4 IRQ. Positive signifies data transfer
+        TYA
+        PHA
+        LDY     NMIIND
+        LDAAY   NMISL
+        STA     NMIIND
+        LDAAY   NMISH
+        STA     NMIIND+1
+        LDAAY   NMIADT
+        STA     IRQptr
+        LDAAY   NMIADS
+        STA     IRQptr+1
+
+; R4 -> Host side claimer of TUBE data transfer
+
+TUBAD1  BIT     R4STAT  ; Subroutine to read from R4
+        BPL     TUBAD1
+        LDA     R4DATA
+        CPYIM   &05     ; If type 5 then release of transfer channel
+        BEQ     EndNMI
+        TYA
+        PHA
+
+; R4 -> high, not so high, medium, low bytes of 4 byte address
+
+        LDYIM   1
+TUBAD2  BIT     R4STAT
+        BPL     TUBAD2
+        LDA     R4DATA
+TUBAD3  BIT     R4STAT
+        BPL     TUBAD3
+        LDA     R4DATA
+TUBAD4  BIT     R4STAT
+        BPL     TUBAD4
+        LDA     R4DATA
+        STAIY   IRQptr
+        DEY
+TUBAD5  BIT     R4STAT
+        BPL     TUBAD5
+        LDA     R4DATA
+        STAIY   IRQptr
+
+        BIT     R3DATA  ; remove any current bytes from io to lang
+        BIT     R3DATA
+
+; R4 -> synchonising byte. Nothing will NMI until this is removed
+
+TUBAD6  BIT     R4STAT
+        BPL     TUBAD6
+        LDA     R4DATA
+
+        PLA             ; check for the polled transfer modes
+        CMPIM   &06
+        BCC     EndNMI
+        BNE     NRC7
+
+; .............................................................................
+; protocol 6. 256 byte polled send to Host
+
+        LDYIM   0
+NRC6    LDA     R3STAT
+        ANDIM   &80
+        BPL     NRC6
+NRC6AD  LDAAY   &FFFF   ; Address patched
+        STA     R3DATA
+        INY
+        BNE     NRC6
+
+NRC6AE  *       NRC6AD+1
+
+; .............................................................................
+; Must keep R3 full all the time else you get NMI'd
+
+NRC6EX  BIT     R3STAT
+        BPL     NRC6EX
+        STA     R3DATA
+
+EndNMI  PLA
+        TAY
+        LDA     IRQatmp
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; protocol 7. 256 byte polled receive from Host
+
+NRC7    LDYIM   0
+NRC7A   LDA     R3STAT
+        ANDIM   &80
+        BPL     NRC7A
+        LDA     R3DATA
+NRC7AD  STAAY   &FFFF   ; Address patched
+        INY
+        BNE     NRC7A
+        BEQ     EndNMI
+
+NRC7AE  *       NRC7AD+1
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; protocol 0. 1 byte NMI send to Host
+
+NRC0 ROUT
+
+        PHA
+NRC0AD  LDA     &FFFF   ; Address patched
+        STA     R3DATA
+        INC     NRC0AD+1
+        BNE     #FT90
+        INC     NRC0AD+2
+90      PLA
+        RTI
+
+NRC0AE  * NRC0AD+1
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; protocol 1. 1 byte NMI receive from Host
+
+NRC1 ROUT
+
+        PHA
+        LDA     R3DATA
+NRC1AD  STA     &FFFF   ; Address patched
+        INC     NRC1AD+1
+        BNE     #FT90
+        INC     NRC1AD+2
+90      PLA
+        RTI
+
+NRC1AE  *       NRC1AD+1
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; protocol 2. 2 byte NMI send to Host
+
+NRC2 ROUT
+
+        PHA
+        TYA
+        PHA
+        LDYIM   0
+        LDAIY   dataptr
+        STA     R3DATA
+        INC     dataptr
+        BNE     NRC21
+        INC     dataptr+1
+NRC21   LDAIY   dataptr
+        STA     R3DATA
+        INC     dataptr
+        BNE     #FT90
+        INC     dataptr+1
+90      PLA
+        TAY
+        PLA
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; protocol 3. 2 byte NMI receive from Host
+
+NRC3 ROUT
+
+        PHA
+        TYA
+        PHA
+        LDYIM   0
+        LDA     R3DATA
+        STAIY   dataptr
+        INC     dataptr
+        BNE     NRC31
+        INC     dataptr+1
+NRC31   LDA     R3DATA
+        STAIY   dataptr
+        INC     dataptr
+        BNE     #FT90
+        INC     dataptr+1
+90      PLA
+        TAY
+        PLA
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Table of data transfer pointer addresses to patch for the 8 protocols
+
+NMIADT  = :LSB: NRC0AE,   :LSB: NRC1AE,   :LSB: dataptr,  :LSB: dataptr
+        = :LSB: dataptr,  :LSB: dataptr,  :LSB: NRC6AE,   :LSB: NRC7AE
+
+NMIADS  = :MSB: NRC0AE,   :MSB: NRC1AE,   :MSB: dataptr,  :MSB: dataptr
+        = :MSB: dataptr,  :MSB: dataptr,  :MSB: NRC6AE,   :MSB: NRC7AE
+
+
+; Table of addresses of NMI routines to use for the 8 protocols
+
+NMISL   = :LSB: NRC0,     :LSB: NRC1,     :LSB: NRC2,     :LSB: NRC3
+        = :LSB: DefNMI,   :LSB: DefNMI,   :LSB: DefNMI,   :LSB: DefNMI
+
+NMISH   = :MSB: NRC0,     :MSB: NRC1,     :MSB: NRC2,     :MSB: NRC3
+        = :MSB: DefNMI,   :MSB: DefNMI,   :MSB: DefNMI,   :MSB: DefNMI
+
+ ] ; end of non-Turbo data transfer
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Subroutine allows R4 IRQ when reading byte from R1 with IRQs disabled
+
+READON ROUT
+
+        BIT     R1STAT
+        BMI     #FT90
+
+        BIT     R4STAT
+        BPL     READON
+
+        LDA     IRQatmp
+        PHP
+        CLI
+        PLP
+        STA     IRQatmp
+        JMP     READON
+
+90      LDA     R1DATA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; String immediate out routine
+
+VSTRNG ROUT
+
+        PLA
+        STA     vstrptr
+        PLA
+        STA     vstrptr+1
+
+        LDYIM   0
+ [ $Turbo
+        STY     Turbo+vstrptr
+ ]
+
+10      INC     vstrptr
+        BNE     #FT20
+        INC     vstrptr+1
+20      LDAIY   vstrptr
+        BMI     #FT99
+        JSR     OsWrch
+        JMP     #BT10
+
+99      JMI     vstrptr
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; NMI pointed here during initialisation. For some reason you can get NMIs
+
+DefNMI  STA     R3DATA
+        RTI
+
+        LNK     TOS03

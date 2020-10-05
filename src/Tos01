@@ -1,0 +1,710 @@
+        TTL     > Tos01
+
+; First version for MNG 24/10/85 (1.10)
+
+
+        GBLL    $rel2
+$rel2   SETL    1 = 1
+
+; Second release 65C102 Boot ROM    SKS 16/01/87 (1.20)
+; Also second release 6502 Boot ROM SKS 16/01/87 (1.20)
+; ECR supplied by DBell 12-Jan-87
+
+; Differences from first release :
+
+;       Converted from UADE format to MASM format
+;       Fixed bug in *GO   : *GO char in range &3A-&3F was legal before
+;       Fixed bug in *HELP : *HELP subject now keeps quiet (unless subject = .)
+;       OSWORD &0E number of parameter bytes bugs fixed (eg. for TIME$)
+;       OSWORD &14 number of parameter bytes bugs fixed (ref. BCockburn)
+;       *HELP code shortened by common abbreviation checking
+;       Easy to change version numbers - only change at start of TOS01 file
+;       Lots of MACROs added to clarify code
+;       Labels changed to local labels where applicable
+;       Turbo (extended 2nd Proc) versions can be conditionally assembled
+
+
+        GBLL    $testing ; Allows us to load it into a running 2nd Processor
+$testing SETL   1 = 0    ; Always set to FALSE for release versions !
+
+
+VERHI   *       "1"
+VERMID  *       "2"
+VERLO   *       "0"
+
+        MACRO
+$label  GENAD   $const
+$label  LDXIM   :LSB: $const
+        LDYIM   :MSB: $const
+        MEND
+
+        MACRO
+$l      R2BYTE  $a
+$l      BIT     R2STAT
+        BPL     .-3
+        LD$a    R2DATA
+        MEND
+
+        MACRO
+$l      W2BYTE  $a
+$l      BIT     R2STAT
+        BVC     .-3
+        ST$a    R2DATA
+        MEND
+
+        MACRO
+$l      R4BYTE
+$l      BIT     R4STAT
+        BPL     .-3
+        LDA     R4DATA
+        MEND
+
+
+execptr *       &EE     ; Zero page TOS allocation
+hxnumb  *       &F0
+goaddr  *       &F2
+IRQptr  *       &F4
+dataptr *       &F6
+cliptr  *       &F8
+wrdptr  *       cliptr
+cbptr   *       &FA
+vstrptr *       cbptr
+IRQatmp *       &FC
+brkptr  *       &FD
+escflag *       &FF
+
+
+MRAM    *       &0100   ; Some code is copied here on initialisation
+
+
+        ^       &0200   ; Vectors in page 2
+USRVEC  #       2
+BRKVEC  #       2
+ALLIRQ  #       2
+IRQVEC  #       2
+COMVEC  #       2
+BYTVEC  #       2
+WORVEC  #       2
+WRCVEC  #       2
+RDCVEC  #       2
+FILVEC  #       2
+ARGVEC  #       2
+BGTVEC  #       2
+BPTVEC  #       2
+GPBVEC  #       2
+FNDVEC  #       2
+FSCVEC  #       2
+EVTVEC  #       2
+UPTVEC  #       2
+NETVEC  #       2
+VDUVEC  #       2
+KEYVEC  #       2
+INSVEC  #       2
+REMVEC  #       2
+CNPVEC  #       2
+IND1VEC #       2
+IND2VEC #       2
+IND3VEC #       2
+
+VecLength *     @-&0200 ; Check consistency in rest of TOS
+
+StarBuffer #    &0300-@ ; Star command buffer/Host BRK buffer
+
+BRKBuffer *    StarBuffer
+
+
+Turbo   *       &0301   ; Page 3 is reserved for Turbo addressing
+
+
+REG0    *       &FEF0   ; Address of the Turbo paging register
+
+TUBEB   *       &FEF8   ; Base of the TUBE (R) in the parasite
+
+        ^       TUBEB
+R1STAT  #       1
+R1DATA  #       1
+R2STAT  #       1
+R2DATA  #       1
+R3STAT  #       1
+R3DATA  #       1
+R4STAT  #       1
+R4DATA  #       1
+
+
+        ^       0       ; Reason codes to pass to Host in R2
+RDCHNO  #       2
+CLINO   #       2
+SBYTNO  #       2
+BYTENO  #       2
+WORDNO  #       2
+RDLNNO  #       2
+ARGSNO  #       2
+BGETNO  #       2
+BPUTNO  #       2
+FINDNO  #       2
+FILENO  #       2
+GBPBNO  #       2
+
+CR      *       13
+LF      *       10
+
+LCASE   *       &20     ; Characters ORed with this are lowercased
+UCASE   *       &DF     ; Characters ANDed with this are uppercased
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+        ORG    &F800
+
+RESET   ROUT
+
+; Copy the ROM into RAM - First copy the bit above the TUBE (FF00 to FFFF)
+
+        LDXIM   0
+10      LDAAX   &FF00
+        STAAX   &FF00
+        DEX
+        BNE     #BT10
+
+; Initialise the vectors and copy bit below the TUBE (FE00 to FEEF)
+
+        LDXIM   VecLength
+20      LDAAX   VECTAB
+        STAAX   USRVEC
+        DEX
+        BPL     #BT20
+
+        TXS             ; Initialise the stack (&FF)
+
+        LDXIM   REG0-&FE00
+30      LDAAX   &FE00-1
+        STAAX   &FE00-1
+        DEX
+        BNE     #BT30
+
+; Now copy the rest of the ROM (F800 to FDFF)
+
+        LDYIM   :LSB: RESET
+        STY     cliptr
+ [ $Turbo
+        STY     Turbo+cliptr
+        STY     REG0    ; Turbo off initially
+ ]
+        LDAIM   :MSB: RESET
+        STA     cliptr+1
+40      LDAIY   cliptr
+        STAIY   cliptr
+        INY
+        BNE     #BT40
+        INC     cliptr+1
+        LDA     cliptr+1
+        CMPIM   &FE
+        BNE     #BT40
+
+        LDXIM   &10     ; Copy the code that accesses the TUBE
+50      LDAAX   FASTER  ; and thus gets rid of the ROM
+        STAAX   MRAM
+        DEX
+        BPL     #BT50
+
+        LDA     execptr ; Assume will be rerunning old program in RAM
+        STA     dataptr
+        LDA     execptr+1
+        STA     dataptr+1
+
+        LDAIM   0       ; Initialise ESCAPE status
+        STA     escflag
+
+ ASSERT (:LSB: RESET) = 0
+        STA     goaddr  ; Initialise the value of HIMEM
+        LDAIM   :MSB: RESET
+        STA     goaddr+1
+
+        JMP     MRAM    ; Enter the TUBE flip code
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; The TUBE flip code (copied to MRAM) accesses the TUBE to remove the ROM
+
+FASTER  LDA     TUBEB
+        CLI
+
+RUNNING JMP     GOING   ; Address patched when TOS has started running
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Output zero terminated startup message
+
+GOING   JSR     VSTRNG
+        = LF
+ [ $Master
+        = "Acorn TUBE 65C102 Co-Processor"
+ |
+  [ $Turbo
+        = "Acorn Tube 6502 256K"
+  |
+        = "Acorn TUBE 6502 64K"
+  ]
+ ]
+        = LF, LF, CR, 0
+        NOP
+
+; Now change the running jump so that reexecution goes to CLILOP
+
+        LDAIM   :LSB: CLILOP
+        STA     RUNNING+1
+        LDAIM   :MSB: CLILOP
+        STA     RUNNING+2
+
+ [ $testing
+        NOP             ; Don't look at the Host, or we'll deadlock
+        LDAIM   0
+ |
+        JSR     RDCHW   ; Get startup instructions from the Host
+ ]
+        CMPIM   &80     ; If startup = &80 then run the software at
+        BEQ     GOIT    ; dataptr (may be old or new code)
+
+; .............................................................................
+; Get cli commands and process them
+
+CLILOP  LDAIM   "*"
+        JSR     OsWrch
+        GENAD   RDLNCB
+        LDAIM   0
+        JSR     OsWord
+        BCS     AckEscape
+        GENAD   StarBuffer
+        JSR     OsCli
+        JMP     CLILOP
+
+
+AckEscape
+        LDAIM   &7E
+        JSR     OsByte
+
+        BRK
+        = &11, "Escape", 0
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Execute a hunk of code. Save it's execution address and use as HIMEM
+
+GOIT    LDA     dataptr
+        STA     execptr
+        STA     goaddr
+        LDA     dataptr+1
+        STA     execptr+1
+        STA     goaddr+1
+ [ $Turbo
+        LDAIM   0
+        STA     Turbo+execptr
+ ]
+
+; Find out if it is a language ROM (if it isn't execute it anyway)
+
+        LDYIM   7
+        LDAIY   execptr
+        CLD
+        CLC
+        ADC     execptr
+        STA     brkptr  ; If it is set brkptr to its copyright message
+        LDAIM   0
+        ADC     execptr+1
+        STA     brkptr+1
+        LDYIM   0
+ [ $Turbo
+        STY     Turbo+brkptr
+ ]
+        LDAIY   brkptr
+        BNE     NotRom
+        INY
+        LDAIY   brkptr
+        CMPIM   "("
+        BNE     NotRom
+        INY
+        LDAIY   brkptr
+        CMPIM   "C"
+        BNE     NotRom
+        INY
+        LDAIY   brkptr
+        CMPIM   ")"
+        BNE     NotRom
+
+; It is a language ROM. See if we are allowed to execute it
+
+        LDYIM   6
+        LDAIY   execptr
+        ANDIM   &4F
+        CMPIM   &40     ; Language bit set ?
+        BCC     NotLang
+
+; Code definition field correct for running on 6502 (=0) ?
+
+        ANDIM   CR
+
+ [ $Turbo
+        BEQ     NotRom          ; 6502 ?
+        CMPIM   1               ; Turbo 6502 ?
+        BNE     BadType
+        RORA                    ; A := &80
+        BMI     NOTRM2          ; Forced
+
+NotRom  LDAIM   0               ; Turbo off
+
+NOTRM2  STA     REG0            ; Only get Turbo if 0,(C) and Turbo bit set
+
+        LDAIM   1
+        JMI     goaddr
+ |
+        BNE     BadType
+
+NotRom  LDAIM   1               ; Here if no 0,(C), or if right type
+        JMI     goaddr
+ ]
+
+
+NotLang LDAIM   :LSB: DEFBRK
+        STA     BRKVEC
+        LDAIM   :MSB: DEFBRK ; default errors
+        STA     BRKVEC+1
+        BRK
+        = 0, "This is not a language", 0
+
+
+BadType LDAIM   :LSB: DEFBRK
+        STA     BRKVEC
+        LDAIM   :MSB: DEFBRK ; default errors
+        STA     BRKVEC+1
+        BRK
+        = 0, "I cannot run this code", 0
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; TOS CLILOP error handling routine
+
+DEFBRK  ROUT
+
+        LDXIM   &FF
+        TXS
+        JSR     OsNewl
+
+        LDYIM   1
+10      LDAIY   brkptr
+        BEQ     #FT90
+        JSR     OsWrch
+        INY
+        BNE     #BT10
+
+90      JSR     OsNewl
+        JMP     CLILOP
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsWord 0 control block
+
+RDLNCB  & StarBuffer
+        = &300-StarBuffer
+        = " "
+        = &FF
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsWrch
+; ======
+
+; A->R1
+
+WRCH    BIT     R1STAT
+        NOP
+        BVC     WRCH
+        STA     R1DATA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsRdch
+; ======
+
+; RDCHNO->R2; R2bit7->C, R2->A
+
+RDCH    LDAIM   RDCHNO
+        JSR     WRITOO
+
+RDCHA   JSR     RDCHW
+        ASLA
+
+RDCHW   R2BYTE  A
+
+ANRTS   RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Skip spaces subroutine for CLI handling
+
+DEBLNL  INY
+DEBLNK  LDAIY   cliptr
+        CMPIM   " "
+        BEQ     DEBLNL
+        RTS
+
+ [ $rel2
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Test abbreviation routine for '*HELP'
+
+TestAbbrev ROUT
+
+        LDAIY   cliptr  ; Get char
+        INY
+        CMPIM   "."
+        BEQ     #FT99   ; CSet -> '.' found
+        ORAIM   LCASE
+        CLC             ; CClear -> Lowercase char returned
+99      RTS
+
+
+ELPstr  =       "pleh"
+
+ ]
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Read hex number routine
+
+ReadNumber ROUT
+
+        LDXIM   0
+        STX     hxnumb
+        STX     hxnumb+1
+
+10      LDAIY   cliptr
+        CMPIM   "0"
+        BCC     #FT99
+        CMPIM   "9"+1
+        BCC     #FT20
+        ANDIM   UCASE
+        SBCIM   7       ; "A" -> "0"+10 etc.
+        BCC     #FT99
+ [ $rel2
+        SBCIM   "0"     ; Catch the range &3A-&3F as invalid
+        CMPIM   16
+ |
+        CMPIM   "0"+16
+ ]
+        BCS     #FT99
+
+20      ASLA
+        ASLA
+        ASLA
+        ASLA
+        LDXIM   3
+30      ASLA
+        ROL     hxnumb
+        ROL     hxnumb+1
+        DEX
+        BPL     #BT30
+        INY
+        BNE     #BT10
+
+99      RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; string,cr->R2
+
+STRING  ROUT
+
+        STX     cliptr
+        STY     cliptr+1
+
+STRINF  LDYIM   0
+ [ $Turbo
+        STY     Turbo+cliptr
+ ]
+10      BIT     R2STAT
+        BVC     #BT10
+        LDAIY   cliptr
+        STA     R2DATA
+        INY
+        CMPIM   CR
+        BNE     #BT10
+
+        LDY     cliptr+1
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; OsCli
+; =====
+
+; Check for TOS commands of GO and HELP
+; Respond to HELP and pass on. Execute GO but do not pass on
+
+; CLINO->R2, String+CR->R2; R2->answer
+; If answer = &80 then execute the binary which was sent
+
+CLI ROUT
+
+        PHA
+        STX     cliptr
+        STY     cliptr+1
+        LDYIM   0
+ [ $Turbo
+        STY     Turbo+cliptr
+ ]
+
+; Skip spaces and stars at the beginning of the line
+
+10      JSR     DEBLNK
+        INY
+        CMPIM   "*"
+        BEQ     #BT10
+
+ [ $rel2
+; Release 2 is rather different here
+
+        ORAIM   LCASE   ; Lowercase first char
+
+        CMPIM   "g"     ; Maybe '*GO'
+        BEQ     MaybeGo
+
+        LDXIM   4-1     ; Try '*HELP'
+20      CMPAX   ELPstr
+        BNE     PassCli
+        DEX             ; If we've matched it all, don't test next !
+        BMI     MaybeHelp
+        JSR     TestAbbrev
+        BCC     #BT20   ; Not abbreviation, so loop
+
+MaybeHelp
+        JSR     DEBLNK  ; Skip spaces following '*HELP'
+        CMPIM   "."
+        BEQ     DoHelp
+        CMPIM   CR
+        BNE     PassCli
+ |
+; Using case equality check for GO and HELP and abbreviations
+
+        ANDIM   UCASE
+        TAX
+        LDAIY   cliptr
+        CPXIM   "G"
+        BEQ     MaybeGo
+
+        CPXIM   "H"
+        BNE     PassCli
+        CMPIM   "."
+        BEQ     DoHelp
+        ANDIM   UCASE
+        CMPIM   "E"
+        BNE     PassCli
+        INY
+        LDAIY   cliptr
+        CMPIM   "."
+        BEQ     DoHelp
+        ANDIM   UCASE
+        CMPIM   "L"
+        BNE     PassCli
+        INY
+        LDAIY   cliptr
+        CMPIM   "."
+        BEQ     DoHelp
+        ANDIM   UCASE
+        CMPIM   "P"
+        BNE     PassCli
+        INY
+        LDAIY   cliptr
+        ANDIM   UCASE
+        CMPIM   "A"
+        BCC     DoHelp
+        CMPIM   &5B
+        BCC     PassCli
+ ]
+
+
+DoHelp  JSR     VSTRNG  ; It's '*HELP' so give message
+        = LF, CR
+ [ $Master
+        = "65C102 TUBE"
+ |
+  [ $Turbo
+        = "Turbo 6502 Tube"
+  |
+        = "6502 TUBE"
+  ]
+ ]
+        = " ", VERHI, ".", VERMID, VERLO
+        = LF, CR
+        NOP
+
+
+; Send the CLI line across to the Host
+
+PassCli LDAIM   CLINO
+        JSR     WRITOO
+
+        JSR     STRINF
+
+
+CLIRUJ  JSR     RDCHW   ; Get back the answer and execute code if required
+        CMPIM   &80
+        BEQ     CLIRUN
+        PLA
+        RTS
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+; Test for '*GO' [<addr>], CR
+
+MaybeGo ROUT
+
+ [ $rel2
+        JSR     TestAbbrev
+        CMPIM   "o"
+        BNE     PassCli
+
+        JSR     DEBLNK
+ |
+        ANDIM   UCASE
+        CMPIM   "O"
+        BNE     PassCli
+
+        JSR     DEBLNL
+ ]
+
+; Think we've found the GO command, but might not have if no number cr
+
+        JSR     ReadNumber
+
+        JSR     DEBLNK
+        CMPIM   CR
+        BNE     PassCli
+
+; If GO cr then use old address and GO again
+
+        TXA
+        BEQ     CLIRUN
+
+        LDA     hxnumb  ; Setup new address to start at
+        STA     dataptr
+        LDA     hxnumb+1
+        STA     dataptr+1
+
+; .............................................................................
+; When executing from CLI save old code's entry point/HIMEM
+
+CLIRUN  LDA     execptr+1
+        PHA
+        LDA     execptr
+        PHA
+ [ $Turbo
+        LDA     REG0
+        PHA
+ ]
+
+        JSR     GOIT
+
+ [ $Turbo
+        PLA
+        STA     REG0
+ ]
+        PLA
+        STA     execptr
+        STA     goaddr
+        PLA
+        STA     execptr+1
+        STA     goaddr+1
+        PLA
+        RTS
+
+
+CLIRUM  BEQ     CLIRUJ
+
+        LNK     TOS02

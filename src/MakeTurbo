@@ -1,0 +1,16 @@
+*|> MakeTurbo
+*Masm
+Stop On
+*Opt1 1
+Asm TurboHdr
+
+get x.ffs
+N&2000
+get x.tos01
+03
+N&2800
+save TTOS
+&2000
+&3000
+
+*stamp TTOS

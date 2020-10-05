@@ -1,0 +1,191 @@
+        TTL     > Tos03
+
+
+ ASSERT . <= REG0
+
+GAP1    * .     ; Plug first gap with &FF's for consistency
+
+        OPT     2
+        WHILE   . < R4DATA+1
+        = &FF
+        WEND
+        OPT     1
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ [ $Turbo
+
+TRC1 ROUT ; Byte transfer : Host -> Turbo
+
+        PHA                     ; Stash A, Y
+        TYA
+        PHA
+        SEC
+        ROR     REG0            ; Turbo on
+
+        LDA     R3DATA
+        LDYIM   0
+        STAIY   dataptr
+
+        INC     dataptr
+        BNE     #10TRC1
+        INC     dataptr+1
+        BNE     #10TRC1
+        INC     Turbo+dataptr
+
+10TRC1  PLA                     ; Restore Y, A
+        TAY
+        PLA
+        ASL     REG0            ; Restore Turbo state
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+TRC2 ROUT ; Pair transfer : Turbo -> Host
+
+        PHA                     ; Stash A, Y
+        TYA
+        PHA
+        SEC
+        ROR     REG0            ; Turbo on
+
+        LDYIM   0
+        LDAIY   dataptr
+        STA     R3DATA
+
+        INC     dataptr
+        BNE     #10TRC2
+        INC     dataptr+1
+        BNE     #10TRC2
+        INC     Turbo+dataptr
+
+10TRC2  LDAIY   dataptr
+        STA     R3DATA
+
+        INC     dataptr
+        BNE     #20TRC2
+        INC     dataptr+1
+        BNE     #20TRC2
+        INC     Turbo+dataptr
+
+20TRC2  PLA                     ; Restore Y, A
+        TAY
+        PLA
+        ASL     REG0            ; Restore Turbo state
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+TRC3 ROUT ; Pair transfer : Host -> Turbo
+
+        PHA                     ; Stash A, Y
+        TYA
+        PHA
+        SEC
+        ROR     REG0            ; Turbo on
+
+        LDA     R3DATA
+        LDYIM   0
+        STAIY   dataptr
+
+        INC     dataptr
+        BNE     #10TRC3
+        INC     dataptr+1
+        BNE     #10TRC3
+        INC     Turbo+dataptr
+
+10TRC3  LDA     R3DATA
+        STAIY   dataptr
+
+        INC     dataptr
+        BNE     #20TRC3
+        INC     dataptr+1
+        BNE     #20TRC3
+        INC     Turbo+dataptr
+
+20TRC3  PLA                     ; Restore Y, A
+        TAY
+        PLA
+        ASL     REG0            ; Restore Turbo state
+        RTI
+
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ ]
+
+ ASSERT . <= &FF80
+
+GAP2    * .     ; Plug second gap with &FF's for consistency
+
+        OPT     2
+        WHILE   . < &FF80
+        = &FF
+        WEND
+        OPT     1
+
+
+VECTAB  &       BadBrk  ; uservec
+        &       DEFBRK
+        &       DEFIRQ  ; allirq
+        &       BadBrk  ; irq
+        &       CLI
+        &       BYTE
+        &       WORD
+        &       WRCH
+        &       RDCH
+        &       FILE
+        &       ARGS
+        &       BGET
+        &       BPUT
+        &       GBPB
+        &       FIND
+        &       BadBrk
+        &       ANRTS   ; event
+        &       BadBrk
+        &       BadBrk
+        &       BadBrk
+        &       BadBrk
+        &       BadBrk
+        &       BadBrk
+        &       BadBrk
+        &       ANRTS
+        &       ANRTS
+        &       ANRTS
+ ASSERT . = VECTAB + VecLength
+
+
+ ASSERT . = &FFB6
+        =       VecLength
+        &       VECTAB
+
+OSRDRM  JMP     BadBrk
+RAWVDU  JMP     BadBrk
+OSEVEN  JMP     BadBrk
+GSINIT  JMP     BadBrk
+GSREAD  JMP     BadBrk
+NVRDCH  JMP     RDCH
+NVWRCH  JMP     WRCH
+
+OSFIND  JMI     FNDVEC
+OSBGPB  JMI     GPBVEC
+OSBPUT  JMI     BPTVEC
+OSBGET  JMI     BGTVEC
+OSARGS  JMI     ARGVEC
+OSFILE  JMI     FILVEC
+OSRDCH  JMI     RDCVEC
+OSASCI  CMPIM   CR
+        BNE     OSWRCH
+OSNEWL  LDAIM   LF
+        JSR     OSWRCH
+        LDAIM   CR
+OSWRCH  JMI     WRCVEC
+OSWORD  JMI     WORVEC
+OSBYTE  JMI     BYTVEC
+OSCLI   JMI     COMVEC
+
+NMIIND  &       DEFNMI
+        &       RESET
+        &       IRQ
+ ASSERT . = 0
+
+        END
