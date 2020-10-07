@@ -1,5 +1,5 @@
 *|> MakeMaster
-*Masm
+*TurMasm
 Stop On
 *Opt1 1
 Asm MasterHdr
@@ -13,4 +13,4 @@ save MTOS
 &2000
 &3000
 
-*stamp MTOS
+

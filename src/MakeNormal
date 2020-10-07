@@ -1,5 +1,5 @@
 *|> MakeNormal
-*Masm
+*TurMasm
 Stop On
 *Opt1 1
 Asm NormalHdr
@@ -13,4 +13,4 @@ save NTOS
 &2000
 &3000
 
-*stamp NTOS
+

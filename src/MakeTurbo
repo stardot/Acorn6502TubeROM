@@ -1,5 +1,5 @@
 *|> MakeTurbo
-*Masm
+*TurMasm
 Stop On
 *Opt1 1
 Asm TurboHdr
@@ -13,4 +13,3 @@ save TTOS
 &2000
 &3000
 
-*stamp TTOS
