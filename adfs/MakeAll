@@ -1,0 +1,37 @@
+*|> MakeAll
+*TurMasm
+Stop On
+*Opt1 1
+Asm NormalHdr
+
+get x.ffs
+N&2000
+get x.tos01
+03
+N&2800
+save NTOS
+&2000
+&3000
+
+Asm MasterHdr
+
+get x.ffs
+N&2000
+get x.tos01
+03
+N&2800
+save MTOS
+&2000
+&3000
+
+Asm TurboHdr
+
+get x.ffs
+N&2000
+get x.tos01
+03
+N&2800
+save TTOS
+&2000
+&3000
+
