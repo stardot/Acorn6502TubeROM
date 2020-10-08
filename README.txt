@@ -22,8 +22,8 @@ The structure of the repository is as follows:
 
     tools/    - binaries for MASM (both DFS and non-DFS versions)
 
-Assembling the OS Source Code
-=============================
+Assembling the Tube ROM Source Code
+===================================
 
 An Acorn Turbo (256K) 6502 Co Processor is needed to assemble the Tube
 ROM sources. As originals are exceedingly rare, an alternative is the
