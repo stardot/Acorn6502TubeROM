@@ -2,9 +2,16 @@ Introduction
 ============
 
 This repository contains the original source code for the Acorn 6502
-Tube ROM, version 1.20, which does not appear to have been publically
-released (only the earlier 1.10 version appears to have been
-released).
+Tube ROM, version 1.20.
+
+Internal 65C102 Master Co Processors with version 1.20 of the ROM have
+been confirmed to exist in the wild, and appear to be identical to the
+version created from these sources.
+
+No examples have been found yet of External 65C02 Second Processors
+with 1.20 ROMs; these all seem to contain 1.10 (or earlier) ROMs.
+
+The much rarer Acorn Turbo (256K) variant has never had it's ROM dumped.
 
 The structure of the repository is as follows:
 
@@ -56,13 +63,13 @@ an appropriate !BOOT file)
 Three versions of the Tube ROM are generated in the root directory:
 
 The Normal Tube ROM for the external 6502 Co Processor, called NTOS:
-    (this has a MD5SUM of 035dc1fff4097207994a9924b65f795b)
+    (this has a MD5SUM of 57759a36f9dccbdf6052aa299e519d07)
 
 The Master Tube ROM for the internal 6502 Co Processor, called MTOS:
-    (this has a MD5SUM of 9a055b7f3fe36efd583f7da643d4c452)
+    (this has a MD5SUM of f77689f677e625f87f42985532fef8b9)
 
 The Turbo Tube ROM for the Acorn 256K Turbo 6502 Co Processor, called TTOS:
-    (this has a MD5SUM of 21ac62d06ba035e362340d8c1f670ff2)
+    (this has a MD5SUM of b060f88964d530b5a0339ac35c945142)
 
 Notes:
 ======
