@@ -29,6 +29,9 @@ The structure of the repository is as follows:
 
     tools/    - binaries for MASM (both DFS and non-DFS versions)
 
+    uadesrc/  - the 1.10 Tube ROM Source in the original UADE format
+                (this is complete, but not buildable within this distribution)
+
 Assembling the Tube ROM Source Code
 ===================================
 
@@ -182,3 +185,6 @@ Acknowledgements:
 Many thanks to Stuart Swales and Paul Fellows (ex Acornsoft) for
 discovering these long-lost sources and making them available to the
 Acorn community.
+
+Many thanks to Graham Toal (ex Acorn) for finding the 1.10 Tube ROM
+source in the original UADE Format.

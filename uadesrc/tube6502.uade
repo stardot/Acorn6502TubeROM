@@ -1,0 +1,1110 @@
+;   Gone for release !
+TUBEB * $FEF8
+R1STAT * TUBEB
+R1DATA * R1STAT +01
+R2STAT * TUBEB +02
+R2DATA * R2STAT +01
+R3STAT * TUBEB +04
+R3DATA * R3STAT +01
+R4STAT * TUBEB +06
+R4DATA * R4STAT +01
+BODGE * R1STAT
+
+USRVEC * $0200
+BRKVEC * USRVEC +02
+ALLIRQ * BRKVEC +02
+IRQVEC * ALLIRQ +02
+COMVEC * IRQVEC +02
+BYTVEC * COMVEC +02
+WORVEC * BYTVEC +02
+WRCVEC * WORVEC +02
+RDCVEC * WRCVEC +02
+FILVEC * RDCVEC +02
+ARGVEC * FILVEC +02
+BGTVEC * ARGVEC +02
+BPTVEC * BGTVEC +02
+GPBVEC * BPTVEC +02
+FNDVEC * GPBVEC +02
+FSCVEC * FNDVEC +02
+EVTVEC * $0220
+
+RDCHNO * $0000
+CLINO * RDCHNO +02
+SBYTNO * CLINO +02
+BYTENO * SBYTNO +02
+WORDNO * BYTENO +02
+RDLNNO * WORDNO +02
+ARGSNO * RDLNNO +02
+BGETNO * ARGSNO +02
+BPUTNO * BGETNO +02
+FINDNO * BPUTNO +02
+FILENO * FINDNO +02
+GBPBNO * FILENO +02
+BUFFER * $0100
+
+EXEPTR * $00EE
+TEMP * $00F0
+IHIMEM * $00F2
+IRQPTR * $00F4
+PTR * $00F6
+ZRAM * $00F8
+TEMPA * $00FC
+REPTR * $00FD
+ESCFLG * $00FF
+MRAM * $0100
+SPACE * $0236
+ ORG $F800
+   Copy the ROM into RAM
+   First copy the bit above the TUBE (FF00 to FFFF)
+RESET LDXIM $00
+COPYT LDAAX $FF00
+ STAAX $FF00
+ DEX
+ BNE COPYT
+   Initialise the vectors and copy bit below TUBE (FE00 to FEEF)
+ LDXIM $36
+VECTORS LDAAX VECTAB
+ STAAX USRVEC
+ DEX
+ BPL VECTORS
+   Initialise the stack
+ TXS
+ LDXIM $F0
+COPYL LDAAX $FDFF
+ STAAX $FDFF
+ DEX
+ BNE COPYL
+   Now copy the rest of the ROM (F800 to FDFF)
+ LDYIM $00
+ STY ZRAM
+ LDAIM RESET /
+ STA ZRAM +01
+COPYLP LDAIY ZRAM
+ STAIY ZRAM
+ INY
+ BNE COPYLP
+ INC ZRAM +01
+ LDA ZRAM +01
+ CMPIM $FE
+ BNE COPYLP
+   Copy the code that accesses the TUBE and thus gets rid of the ROM
+ LDXIM $10
+COPYM LDAAX FASTER
+ STAAX MRAM
+ DEX
+ BPL COPYM
+   Assume will be rerunning old program in RAM
+ LDA EXEPTR
+ STA PTR
+ LDA EXEPTR +01
+ STA PTR +01
+   Initialise ESCAPE status
+ LDAIM $00
+ STA ESCFLG
+   Initialise the value of HIMEM
+ STA IHIMEM
+ LDAIM RESET /
+ STA IHIMEM +01
+   Enter the TUBE flip code
+ JMP MRAM
+   The TUBE flip code (copied to MRAM) accesses the TUBE to remove the ROM
+FASTER LDA TUBEB
+ CLI
+   The JMP to GOING will be changed when the TOS is running
+RUNING JMP GOING
+   Output zero terminated startup message
+GOING JSR VSTRNG
+ = $0A
+ = 'A
+ = 'c
+ = 'o
+ = 'r
+ = 'n
+ = ' 
+ = 'T
+ = 'U
+ = 'B
+ = 'E
+ = ' 
+ = '6
+ = '5
+ = '0
+ = '2
+ = ' 
+ = '6
+ = '4
+ = 'K
+ = $0A
+ = $0A
+ = $0D
+ = $00
+ NOP
+   Now change the running jump so that reexecution goes to CLILOP
+ LDAIM CLILOP
+ STA RUNING +01
+ LDAIM CLILOP /
+ STA RUNING +02
+   Get startup instructions from the other side
+ JSR RDCHW
+   If startup<>&80 then run the software at PTR (may be old or new code)
+ CMPIM $80
+ BEQ GOIT
+   Get cli commands and process them
+CLILOP LDAIM '*
+ JSR OSWRCH
+ LDXIM RDLNCB
+ LDYIM RDLNCB /
+ LDAIM $00
+ JSR OSWORD
+ BCS ESCAP
+ LDXIM SPACE
+ LDYIM SPACE /
+ JSR OSCLI
+ JMP CLILOP
+ESCAP LDAIM $7E
+ JSR OSBYTE
+ BRK
+ = $11
+ = 'E
+ = 's
+ = 'c
+ = 'a
+ = 'p
+ = 'e
+ BRK
+   Execute a hunk of code. Save it's execution address and use as HIMEM
+GOIT LDA PTR
+ STA EXEPTR
+ STA IHIMEM
+ LDA PTR +01
+ STA EXEPTR +01
+ STA IHIMEM +01
+   Find out if it is a language ROM (if it isn't execute it anyway)
+ LDYIM $07
+ LDAIY EXEPTR
+ CLD
+ CLC
+ ADC EXEPTR
+   (if it is set REPTR to its copyright message)
+ STA REPTR
+ LDAIM $00
+ ADC EXEPTR +01
+ STA REPTR +01
+ LDYIM $00
+ LDAIY REPTR
+ BNE NOTROM
+ INY
+ LDAIY REPTR
+ CMPIM '(
+ BNE NOTROM
+ INY
+ LDAIY REPTR
+ CMPIM 'C
+ BNE NOTROM
+ INY
+ LDAIY REPTR
+ CMPIM ')
+ BNE NOTROM
+   It is a language ROM. See if we are allowed to execute it
+ LDYIM $06
+ LDAIY EXEPTR
+ ANDIM $4F
+ CMPIM $40
+   Language bit set ?
+ BCC NOLANG
+   Code definition field correct for running on 6502 (=0) ?
+ ANDIM $0D
+ BNE BADTYPE
+NOTROM LDAIM $01
+ JMI IHIMEM
+NOLANG LDAIM DEFBRK
+ STA BRKVEC
+ LDAIM DEFBRK / default errors
+ STA BRKVEC +01
+ BRK
+ BRK
+ = 'T
+ = 'h
+ = 'i
+ = 's
+ = ' 
+ = 'i
+ = 's
+ = ' 
+ = 'n
+ = 'o
+ = 't
+ = ' 
+ = 'a
+ = ' 
+ = 'l
+ = 'a
+ = 'n
+ = 'g
+ = 'u
+ = 'a
+ = 'g
+ = 'e
+ BRK
+BADTYPE LDAIM DEFBRK
+ STA BRKVEC
+ LDAIM DEFBRK / default errors
+ STA BRKVEC +01
+ BRK
+ BRK
+ = 'I
+ = ' 
+ = 'c
+ = 'a
+ = 'n
+ = 'n
+ = 'o
+ = 't
+ = ' 
+ = 'r
+ = 'u
+ = 'n
+ = ' 
+ = 't
+ = 'h
+ = 'i
+ = 's
+ = ' 
+ = 'c
+ = 'o
+ = 'd
+ = 'e
+ BRK
+   TOS CLILOP error handling routine
+DEFBRK LDXIM $FF
+ TXS
+ JSR OSCRLF
+ LDYIM $01
+ELOOP LDAIY REPTR
+ BEQ DEFBRE
+ JSR OSWRCH
+ INY
+ BNE ELOOP
+DEFBRE JSR OSCRLF
+ JMP CLILOP
+RDLNCB = SPACE /
+ = SPACE
+ = $CA
+ = ' 
+ = $FF
+   OSWRCH. A->R1
+NEWWRT BIT BODGE
+ NOP
+ BVC NEWWRT
+ STA BODGE +01
+ RTS
+   OSRDCH. RDCHNO->R2; R2bit7->C, R2->A
+NEWRD LDAIM RDCHNO
+ JSR WRITOO
+RDCHA JSR RDCHW
+RDCHB ASLA
+RDCHW BIT R2STAT
+ BPL RDCHW
+ LDA R2DATA
+ANRTS RTS
+   Skip spaces subroutine for CLI handling
+DEBLNL INY
+DEBLNK LDAIY ZRAM
+ CMPIM ' 
+ BEQ DEBLNL
+ RTS
+   Read hex number routine
+GETNUM LDXIM $00
+ STX TEMP
+ STX TEMP +01
+NUMLOP LDAIY ZRAM
+ CMPIM '0
+ BCC NUMOUT
+ CMPIM $3A
+ BCC NUMOK
+ ANDIM $DF
+ SBCIM $07
+ BCC NUMOUT
+ CMPIM $40
+ BCS NUMOUT
+NUMOK ASLA
+ ASLA
+ ASLA
+ ASLA
+ LDXIM $03
+NUMLIP ASLA
+ ROL TEMP
+ ROL TEMP +01
+ DEX
+ BPL NUMLIP
+ INY
+ BNE NUMLOP
+NUMOUT RTS
+   string cr->R2
+STRING STX ZRAM
+ STY ZRAM +01
+STRINF LDYIM $00
+CLIW BIT R2STAT
+ BVC CLIW
+ LDAIY ZRAM
+ STA R2DATA
+ INY
+ CMPIM $0D
+ BNE CLIW
+ LDY ZRAM +01
+ RTS
+   OSCLI. Check for TOS commands of GO and HELP. Respond to HELP and pass on
+   Execute GO but do not pass on.
+   CLINO->R2, String+CR->R2; R2->answer
+   If answer =&80 then execute the binary which was sent
+NEWCLI PHA
+ STX ZRAM
+ STY ZRAM +01
+ LDYIM $00
+   Skip spaces and *s at the beginning of the line
+NEWCLA JSR DEBLNK
+ INY
+ CMPIM '*
+ BEQ NEWCLA
+   Using case equality check for GO and HELP and abbreviations
+ ANDIM $DF
+ TAX
+ LDAIY ZRAM
+ CPXIM 'G
+ BEQ GOCOMM
+ CPXIM 'H
+ BNE SENCLI
+ CMPIM '.
+ BEQ DOHELP
+ ANDIM $DF
+ CMPIM 'E
+ BNE SENCLI
+ INY
+ LDAIY ZRAM
+ CMPIM '.
+ BEQ DOHELP
+ ANDIM $DF
+ CMPIM 'L
+ BNE SENCLI
+ INY
+ LDAIY ZRAM
+ CMPIM '.
+ BEQ DOHELP
+ ANDIM $DF
+ CMPIM 'P
+ BNE SENCLI
+ INY
+ LDAIY ZRAM
+ ANDIM $DF
+ CMPIM 'A
+ BCC DOHELP
+ CMPIM $5B
+ BCC SENCLI
+   Its HELP so give message
+DOHELP JSR VSTRNG
+ = $0A
+ = $0D
+ = '6
+ = '5
+ = '0
+ = '2
+ = ' 
+ = 'T
+ = 'U
+ = 'B
+ = 'E
+ = ' 
+ = '1
+ = '.
+ = '1
+ = '0
+ = $0A
+ = $0D
+ NOP
+   Send the CLI line across
+SENCLI LDAIM CLINO
+ JSR WRITOO
+ JSR STRINF
+   Get back the answer
+CLIRUJ JSR RDCHW
+ CMPIM $80
+   and execute code if rqd
+ BEQ CLIRUN
+ PLA
+ RTS
+GOCOMM ANDIM $DF
+ CMPIM 'O
+ BNE SENCLI
+   think we've found the GO command, but might not have if no number cr
+ JSR DEBLNL
+ JSR GETNUM
+ JSR DEBLNK
+ CMPIM $0D
+ BNE SENCLI
+   If GO cr then use old address and GO again
+ TXA
+ BEQ CLIRUN
+   New address to start at
+ LDA TEMP
+ STA PTR
+ LDA TEMP +01
+ STA PTR +01
+   When executing from CLI save old code's entry point/HIMEM
+CLIRUN LDA EXEPTR +01
+ PHA
+ LDA EXEPTR
+ PHA
+ JSR GOIT
+ PLA
+ STA EXEPTR
+ STA IHIMEM
+ PLA
+ STA EXEPTR +01
+ STA IHIMEM +01
+ PLA
+ RTS
+CLIRUM BEQ CLIRUJ
+   OSBYTE. If A<128 then SBYTNO->R2, X->R2, A->R2; R2->X
+BYTE CMPIM $80
+ BCS BYTSIZ
+SBYTE PHA
+ LDAIM SBYTNO
+SBYTEA BIT R2STAT
+ BVC SBYTEA
+ STA R2DATA
+SBYTW1 BIT R2STAT
+ BVC SBYTW1
+ STX R2DATA
+ PLA
+SBYTW0 BIT R2STAT
+ BVC SBYTW0
+ STA R2DATA
+SBYTW4 BIT R2STAT
+ BPL SBYTW4
+ LDX R2DATA
+ RTS
+   If A>=128 check for TOS OSBYTE calls else go into normal OSBYTE routine
+BYTSIZ CMPIM $82
+ BEQ MACADD
+ CMPIM $83
+ BEQ LOMEM
+ CMPIM $84
+ BEQ HIMEM
+   BYTENO->R2, X->R2, Y->R2, A->R2; if A=&9D exit now
+              if A=&8E then it's run a rom
+              R2bit7->C, R2->Y, R2->X
+BYTEA PHA
+ LDAIM BYTENO
+BYTEAW BIT R2STAT
+ BVC BYTEAW
+ STA R2DATA
+BYTEW1 BIT R2STAT
+ BVC BYTEW1
+ STX R2DATA
+BYTEW2 BIT R2STAT
+ BVC BYTEW2
+ STY R2DATA
+ PLA
+BYTEW0 BIT R2STAT
+ BVC BYTEW0
+ STA R2DATA
+ CMPIM $8E
+ BEQ CLIRUM
+ CMPIM $9D
+ BEQ BYTEX
+ PHA
+BYTEW3 BIT R2STAT
+ BPL BYTEW3
+ LDA R2DATA
+ ASLA
+ PLA
+BYTEW4 BIT R2STAT
+ BPL BYTEW4
+ LDY R2DATA
+BYTEW5 BIT R2STAT
+ BPL BYTEW5
+ LDX R2DATA
+BYTEX RTS
+HIMEM LDX IHIMEM
+ LDY IHIMEM +01
+ RTS
+LOMEM LDXIM $00
+ LDYIM $08
+ RTS
+MACADD LDXIM $00
+ LDYIM $00
+ RTS
+   OSWORD. If A=0 then use READLN
+WORD STX ZRAM
+ STY ZRAM +01
+ TAY
+ BEQ READLN
+ PHA
+   WORDNO->R2, A->R2
+ LDYIM WORDNO
+WORDW BIT R2STAT
+ BVC WORDW
+ STY R2DATA
+WORDW0 BIT R2STAT
+ BVC WORDW0
+ STA R2DATA
+   size:=(CB),0 if A>=128
+   size:=16 if A<128 AND A>=&15
+   size from table if A<&15
+ TAX
+ BPL NOWORD
+ LDYIM $00
+ LDAIY ZRAM
+ TAY
+ JMP WORDW1
+NOWORD LDYAX WORSEN -01
+ CPXIM $15
+ BCC WORDW1
+ LDYIM $10
+   size->R2
+WORDW1 BIT R2STAT
+ BVC WORDW1
+ STY R2DATA
+   size [ bytes from control block ->R2 ]
+ DEY
+ BMI WORDW4
+WORDW2 BIT R2STAT
+ BVC WORDW2
+ LDAIY ZRAM
+ STA R2DATA
+ DEY
+ BPL WORDW2
+   size:=(CB),1 if A>=128
+   size:=16 if A<128 AND A>=&15
+   size from table if A<&15
+WORDW4 TXA
+ BPL NOWORE
+ LDYIM $01
+ LDAIY ZRAM
+ TAY
+ JMP WORDW5
+NOWORE LDYAX WORRCV -01
+ CPXIM $15
+ BCC WORDW5
+ LDYIM $10
+   size->R2
+WORDW5 BIT R2STAT
+ BVC WORDW5
+ STY R2DATA
+   size [ R2 -> bytes to control block ]
+ DEY
+ BMI WORDEN
+WORDW6 BIT R2STAT
+ BPL WORDW6
+ LDA R2DATA
+ STAIY ZRAM
+ DEY
+ BPL WORDW6
+WORDEN LDY ZRAM +01
+ LDX ZRAM
+ PLA
+ RTS
+   OSWORD 0. RDLNNO->R2, (CB),4->R2, (CB),3->R2, (CB),2->R2, 7->R2, 0->R2
+READLN LDAIM RDLNNO
+ JSR WRITOO
+ LDYIM $04
+RDLNW0 BIT R2STAT
+ BVC RDLNW0
+ LDAIY ZRAM
+ STA R2DATA
+ DEY
+ CPYIM $01
+ BNE RDLNW0
+ LDAIM $07
+ JSR WRITOO
+ LDAIY ZRAM
+ PHA
+ DEY
+RDLNW2 BIT R2STAT
+ BVC RDLNW2
+ STY R2DATA
+ LDAIY ZRAM
+ PHA
+ LDXIM $FF
+   R2->answer. If answer>=&80 escape was pressed
+ JSR RDCHW
+ CMPIM $80
+ BCS RDLNEN
+ PLA
+ STA ZRAM
+ PLA
+ STA ZRAM +01
+   R2->string cr
+ LDYIM $00
+RDLNW3 BIT R2STAT
+ BPL RDLNW3
+ LDA R2DATA
+ STAIY ZRAM
+ INY
+ CMPIM $0D
+ BNE RDLNW3
+ LDAIM $00
+ DEY
+ CLC
+ INX
+ RTS
+RDLNEN PLA
+ PLA
+ LDAIM $00
+ RTS
+   OSARGS. ARGSNO->R2, CB,3->R2, CB,2->R2, CB,1->R2, CB,0->R2, A->R2
+ARGS PHA
+ LDAIM ARGSNO
+ JSR WRITOO
+ARGSB BIT R2STAT
+ BVC ARGSB
+ STY R2DATA
+ LDAZX $0003
+ JSR WRITOO
+ LDAZX $0002
+ JSR WRITOO
+ LDAZX $0001
+ JSR WRITOO
+ LDAZX $0000
+ JSR WRITOO
+ PLA
+ JSR WRITOO
+   R2->A, R2->CB,3, R2->CB,2, R2->CB,1, R2->CB,0
+ JSR RDCHW
+ PHA
+ JSR RDCHW
+ STAZX $0003
+ JSR RDCHW
+ STAZX $0002
+ JSR RDCHW
+ STAZX $0001
+ JSR RDCHW
+ STAZX $0000
+ PLA
+ RTS
+   OSFIND. FINDNO->R2, A->R2
+FIND PHA
+ LDAIM FINDNO
+ JSR WRITOO
+ PLA
+ JSR WRITOO
+ CMPIM $00
+ BNE FINDLN
+   If A=0 Y->R2, R2->junk
+ PHA
+ TYA
+ JSR WRITOO
+ JSR RDCHW
+ PLA
+ RTS
+   If A<>0 string cr->R2, R2->A
+FINDLN JSR STRING
+ JMP RDCHW
+   OSBGET. BGETNO->R2, Y->R2; R2bit7->C, R2->A
+BGET LDAIM BGETNO
+ JSR WRITOO
+ TYA
+ JSR WRITOO
+ JMP RDCHA
+   OSBPUT. BPUTNO->R2, Y->R2, A->R2; R2->junk
+BPUT PHA
+ LDAIM BPUTNO
+ JSR WRITOO
+ TYA
+ JSR WRITOO
+ PLA
+ JSR WRITOO
+ PHA
+ JSR RDCHW
+ PLA
+ RTS
+   subroutine to write A to R2
+WRITOO BIT R2STAT
+ BVC WRITOO
+ STA R2DATA
+ RTS
+   OSFILE. FILENO->R2, (CB),17->R2...(CB),2->R2, string cr->R2, A->R2
+FILE STY ZRAM +03
+ STX ZRAM +02
+ PHA
+ LDAIM FILENO
+ JSR WRITOO
+ LDYIM $11
+FILEB LDAIY ZRAM +02
+ JSR WRITOO
+ DEY
+ CPYIM $01
+ BNE FILEB
+ DEY
+ LDAIY ZRAM +02
+ TAX
+ INY
+ LDAIY ZRAM +02
+ TAY
+ JSR STRING
+ PLA
+ JSR WRITOO
+   R2->A, R2->(CB),17...R2->(CB),2
+ JSR RDCHW
+ PHA
+ LDYIM $11
+FILEC JSR RDCHW
+ STAIY ZRAM +02
+ DEY
+ CPYIM $01
+ BNE FILEC
+FILED LDY ZRAM +03
+ LDX ZRAM +02
+ PLA
+ RTS
+   OSGBPB. GBPBNO->R2, (CB),12->R2...(CB),0->R2, A->R2
+GBPB STY ZRAM +03
+ STX ZRAM +02
+ PHA
+ LDAIM GBPBNO
+ JSR WRITOO
+ LDYIM $0C
+GBPBA LDAIY ZRAM +02
+ JSR WRITOO
+ DEY
+ BPL GBPBA
+ PLA
+ JSR WRITOO
+   R2->(CB),12...R2->(CB),0, R2bit7->C, R2->A
+ LDYIM $0C
+GBPBB JSR RDCHW
+ STAIY ZRAM +02
+ DEY
+ BPL GBPBB
+ LDY ZRAM +03
+ LDX ZRAM +02
+ JMP RDCHA
+BAD BRK
+ = $FF
+ = 'B
+ = 'a
+ = 'd
+ BRK
+   Table of number of bytes to send in OSWORD
+WORSEN = $00
+ = $05
+ = $00
+ = $05
+ = $02
+ = $05
+ = $08
+ = $0E
+ = $04
+ = $01
+ = $01
+ = $05
+ = $00;&0D
+ = $01
+ = $20
+ = $10;&10
+ = $0D
+ = $00
+ = $04
+ = $80;$14
+   Table of number of bytes to receive in OSWORD
+WORRCV = $05
+ = $00
+ = $05
+ = $00
+ = $05
+ = $00
+ = $00
+ = $00
+ = $05
+ = $09
+ = $05
+ = $00
+ = $08;&0D
+ = $18
+ = $00
+ = $01;&10
+ = $0D
+ = $80
+ = $04
+ = $80;$14
+   IRQ main handling. Check for BRK instruction
+IRQ STA TEMPA
+ PLA
+ PHA
+ ANDIM $10
+ BNE BRK
+   Go through first indirection
+ JMI ALLIRQ
+   which ends up here. Check for TUBE interrupts
+DEFIRQ BIT R4STAT
+   Register 4 interrupt (data transfer control and errors)
+ BMI TUBIRR
+   Register 1 interrupt (events and escape)
+ BIT R1STAT
+ BMI TUBIRQ
+   Wasn't the TUBE so get hold of the user if he's there
+ JMI IRQVEC
+   BRK handling. Initialise REPTR to point to error code
+BRK TXA
+ PHA
+ TSX
+ LDAAX $0103
+ CLD
+ SEC
+ SBCIM $01
+ STA REPTR
+ LDAAX $0104
+ SBCIM $00
+ STA REPTR +01
+ PLA
+ TAX
+ LDA TEMPA
+ CLI
+ JMI BRKVEC
+   Register 1 IRQ. If negative updates escape flag
+TUBIRQ LDA R1DATA
+ BMI TUBESC
+   Event routine. R2->Y, R2->X, R2->A, go to event server
+ TYA
+ PHA
+ TXA
+ PHA
+ JSR READON
+ TAY
+ JSR READON
+ TAX
+ JSR READON
+ JSR GOEVT
+ PLA
+ TAX
+ PLA
+ TAY
+ LDA TEMPA
+ RTI
+GOEVT JMI EVTVEC
+   Update ESCFLG with bit 6 from the TUBE
+TUBESC ASLA
+ STA ESCFLG
+ LDA TEMPA
+ RTI
+   Register 4 IRQ. If negative signifies error
+TUBIRR LDA R4DATA
+ BPL TUBADD
+   Flush data in R2 host to parasite
+ CLI
+IRRWAT BIT R2STAT
+ BPL IRRWAT
+ LDA R2DATA
+ LDAIM $00
+ STA SPACE
+ TAY
+   R2->error code number
+ JSR RDCHW
+ STA SPACE +01
+   R2->string 0
+OERRW INY
+ JSR RDCHW
+ STAAY SPACE +01
+ BNE OERRW
+ JMP SPACE
+   Register 4 IRQ. Positive signifies data transfer
+TUBADD STA NMIIND
+ TYA
+ PHA
+ LDY NMIIND
+ LDAAY NMISL
+ STA NMIIND
+ LDAAY NMISH
+ STA NMIIND +01
+ LDAAY NMIADT
+ STA IRQPTR
+ LDAAY NMIADS
+ STA IRQPTR +01
+   R4->host side claimer of TUBE data transfer
+   Subroutine to read from R4
+TUBAD1 BIT R4STAT
+ BPL TUBAD1
+ LDA R4DATA
+   If type 5 then release of transfer channel
+ CPYIM $05
+ BEQ ENDIT ;release
+ TYA
+ PHA
+   R4->high, not so high, medium, low bytes of 4 byte address
+ LDYIM $01
+TUBAD2 BIT R4STAT
+ BPL TUBAD2
+ LDA R4DATA
+TUBAD3 BIT R4STAT
+ BPL TUBAD3
+ LDA R4DATA
+TUBAD4 BIT R4STAT
+ BPL TUBAD4
+ LDA R4DATA
+ STAIY IRQPTR
+ DEY
+TUBAD5 BIT R4STAT
+ BPL TUBAD5
+ LDA R4DATA
+ STAIY IRQPTR
+   remove any current bytes from io to lang
+ BIT R3DATA
+ BIT R3DATA
+   R4->synchonising byte. Nothing will NMI until this is removed
+TUBAD6 BIT R4STAT
+ BPL TUBAD6
+ LDA R4DATA
+   check for the polled transfer modes
+ PLA
+ CMPIM $06
+ BCC ENDIT
+ BNE NMIF
+   protocol 6. 256 byte polled send to host
+ LDYIM $00
+NMIE LDA R3STAT
+ ANDIM $80
+ BPL NMIE
+NMIEAD LDAAY $FFFF
+ STA R3DATA
+ INY
+ BNE NMIE
+   Must keep R3 full all the time else you get NMIed
+NMIEEX BIT R3STAT
+ BPL NMIEEX
+ STA R3DATA
+ENDIT PLA
+ TAY
+ LDA TEMPA
+ RTI
+   protocol 7. 256 byte polled receive from host
+NMIF LDYIM $00
+NMIFA LDA R3STAT
+ ANDIM $80
+ BPL NMIFA
+ LDA R3DATA
+NMIFAD STAAY $FFFF
+ INY
+ BNE NMIFA
+ BEQ ENDIT
+   protocol 0. 1 byte NMI send to host
+NMIA PHA
+NMIAAD LDA $FFFF
+ STA R3DATA
+ INC NMIAAD +01
+ BNE NMIA1
+ INC NMIAAD +02
+NMIA1 PLA
+ RTI
+   protocol 1. 1 byte NMI receive from host
+NMIB PHA
+ LDA R3DATA
+NMIBAD STA $FFFF
+ INC NMIBAD +01
+ BNE NMIB1
+ INC NMIBAD +02
+NMIB1 PLA
+ RTI
+   protocol 2. 2 byte NMI send to host
+NMIC PHA
+ TYA
+ PHA
+ LDYIM $00
+ LDAIY PTR
+ STA R3DATA
+ INC PTR
+ BNE NMIC1
+ INC PTR +01
+NMIC1 LDAIY PTR
+ STA R3DATA
+ INC PTR
+ BNE NMIC2
+ INC PTR +01
+NMIC2 PLA
+ TAY
+ PLA
+ RTI
+   protocol 3. 2 byte NMI receive from host
+NMID PHA
+ TYA
+ PHA
+ LDYIM $00
+ LDA R3DATA
+ STAIY PTR
+ INC PTR
+ BNE NMID1
+ INC PTR +01
+NMID1 LDA R3DATA
+ STAIY PTR
+ INC PTR
+ BNE NMID2
+ INC PTR +01
+NMID2 PLA
+ TAY
+ PLA
+ RTI
+NMIAAE * NMIAAD +01
+NMIBAE * NMIBAD +01
+NMIFAE * NMIFAD +01
+NMIEAE * NMIEAD +01
+NMIADT = NMIAAE /
+ = NMIBAE /
+ = PTR /
+ = PTR /
+ = PTR /
+ = PTR /
+ = NMIEAE /
+ = NMIFAE /
+NMIADS = NMIAAE
+ = NMIBAE
+ = PTR
+ = PTR
+ = PTR
+ = PTR
+ = NMIEAE
+ = NMIFAE
+NMISL = NMIA /
+ = NMIB /
+ = NMIC /
+ = NMID /
+ = DEFNMI /
+ = DEFNMI /
+ = DEFNMI /
+ = DEFNMI /
+NMISH = NMIA
+ = NMIB
+ = NMIC
+ = NMID
+ = DEFNMI
+ = DEFNMI
+ = DEFNMI
+ = DEFNMI
+   Subroutine allows R4 IRQ when reading byte from R1 with IRQs disabled
+READON BIT R1STAT
+ BMI RDONGT
+ BIT R4STAT
+ BPL READON
+ LDA TEMPA
+ PHP
+ CLI
+ PLP
+ STA TEMPA
+ JMP READON
+RDONGT LDA R1DATA
+ RTS
+   String out routine
+VSTRNG PLA
+ STA ZRAM +02
+ PLA
+ STA ZRAM +03
+ LDYIM $00
+VSTRLP INC ZRAM +02
+ BNE VSTR
+ INC ZRAM +03
+VSTR LDAIY ZRAM +02
+ BMI VSTRX
+ JSR OSWRCH
+ JMP VSTRLP
+VSTRX JMI ZRAM +02
+   NMI pointed here during initialisation. For some reason you can get NMIs
+DEFNMI STA R3DATA
+ RTI
